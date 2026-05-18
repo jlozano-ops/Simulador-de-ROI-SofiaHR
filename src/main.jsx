@@ -19,6 +19,7 @@ function App() {
     contratacionesMes: 100,
     vacantesAbiertas: 20,
     diasActuales: 12,
+    diasSofiaHR: 3,
     sueldoOperativo: 14000,
     costoDiaVacanteManual: 700,
     calculoAutomaticoVacante: true,
@@ -59,7 +60,7 @@ function App() {
     const contratacionesAnuales = inputs.contratacionesMes * 12;
     const adopcion = [0.5, 0.8, 0.9];
     const reduccionAgencia = [0.3, 0.5, 0.65];
-    const diasSofiaHR = 3;
+    const diasSofiaHR = inputs.diasSofiaHR;
 
     const costoDiaVacanteAutomatico =
       (inputs.sueldoOperativo / 30) * inputs.factorImpactoVacante;
@@ -250,7 +251,7 @@ function App() {
               {[
                 ['ROI primer año', `${num(y1.roi * 100)}%`, 'text-emerald-400'],
                 ['Payback', `${num(y1.payback, 1)} meses`, 'text-emerald-400'],
-                ['Tiempo con SofiaHR', '3 días', 'text-[#ff5a2c]'],
+                ['Tiempo con SofiaHR', `${inputs.diasSofiaHR} días`, 'text-[#ff5a2c]'],
                 ['Adopción Año 1', '50%', 'text-[#ff5a2c]'],
                 ['Inversión mensual', money(results.inversionMensual), 'text-[#ff5a2c]'],
                 ['Costo por contratación', money(results.costoSofiaPorContratacion), 'text-[#ff5a2c]'],
@@ -279,7 +280,7 @@ function App() {
           <SectionCard icon={Zap} badge="B" title="Velocidad de contratación" subtitle="Costos asociados a vacantes sin cubrir" color="orange">
             <div className="grid gap-4 md:grid-cols-3">
               <InputBox label="Días actuales para contratar" value={inputs.diasActuales} field="diasActuales" suffix="días" />
-              <InputBox label="Días con SofiaHR" value={3} field="diasActuales" suffix="días" disabled note="Supuesto fijo del modelo." />
+              <InputBox label="Días estimados con SofiaHR" value={inputs.diasSofiaHR} field="diasSofiaHR" suffix="días" note="Puedes probar diferentes escenarios: 3, 5, 7 o más días." />
               <InputBox label="Sueldo mensual promedio operativo" value={inputs.sueldoOperativo} field="sueldoOperativo" prefix="$" />
             </div>
 
@@ -432,7 +433,7 @@ function App() {
           </div>
           <h2 className="max-w-3xl text-3xl font-black md:text-4xl">El argumento que necesitas, con tus propios números</h2>
           <div className="mt-8 rounded-2xl border border-white/15 bg-white/10 p-6 text-lg italic leading-8 text-slate-100">
-            “Hoy perdemos dinero porque tardamos <strong>{inputs.diasActuales} días</strong> en contratar y el <strong>{inputs.porcentajeAgencia}%</strong> de nuestras contrataciones pasa por agencias. Con SofiaHR reducimos el tiempo de cobertura a <strong>3 días</strong>, liberamos capacidad operativa del equipo de RH y reducimos dependencia externa. El ahorro estimado del primer año es de <strong className="text-[#ff8a66]">{money(y1.ahorroTotal)}</strong>, con un ROI de <strong className="text-[#ff8a66]">{num(y1.roi * 100)}%</strong>.”
+            “Hoy perdemos dinero porque tardamos <strong>{inputs.diasActuales} días</strong> en contratar y el <strong>{inputs.porcentajeAgencia}%</strong> de nuestras contrataciones pasa por agencias. Con SofiaHR reducimos el tiempo de cobertura a <strong>{inputs.diasSofiaHR} días</strong>, liberamos capacidad operativa del equipo de RH y reducimos dependencia externa. El ahorro estimado del primer año es de <strong className="text-[#ff8a66]">{money(y1.ahorroTotal)}</strong>, con un ROI de <strong className="text-[#ff8a66]">{num(y1.roi * 100)}%</strong>.”
           </div>
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <div className="rounded-2xl border border-white/15 bg-white/10 p-5"><p className="text-2xl font-black text-[#ff5a2c]">{money(y1.ahorroTotal / 12, true)}/mes</p><p className="text-sm text-slate-300">Ahorro mensual total</p></div>
@@ -459,7 +460,7 @@ function App() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              <tr><td className="px-5 py-4 font-semibold">Días para cubrir una vacante</td><td>{inputs.diasActuales} días</td><td>→</td><td className="font-black text-emerald-600">3 días</td></tr>
+              <tr><td className="px-5 py-4 font-semibold">Días para cubrir una vacante</td><td>{inputs.diasActuales} días</td><td>→</td><td className="font-black text-emerald-600">{inputs.diasSofiaHR} días</td></tr>
               <tr><td className="px-5 py-4 font-semibold">Costo estimado por día de vacante sin cubrir</td><td>{money(results.costoDiaVacante)}</td><td>→</td><td className="font-black text-emerald-600">Base para calcular ahorro por cobertura</td></tr>
               <tr><td className="px-5 py-4 font-semibold">% contrataciones gestionadas por SofiaHR</td><td>0%</td><td>→</td><td className="font-black text-emerald-600">50% año 1 / 80% año 2 / 90% año 3</td></tr>
               <tr><td className="px-5 py-4 font-semibold">Gasto anual en agencias</td><td>{money(results.costoActualAgencias)}</td><td>→</td><td className="font-black text-emerald-600">-{money(y1.ahorroAgencias)} año 1</td></tr>
@@ -486,7 +487,7 @@ function App() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              <tr><td className="px-5 py-4 font-semibold">Tiempo de cobertura</td><td>{inputs.diasActuales} días</td>{results.years.map((y) => <td key={y.year}>3 días</td>)}</tr>
+              <tr><td className="px-5 py-4 font-semibold">Tiempo de cobertura</td><td>{inputs.diasActuales} días</td>{results.years.map((y) => <td key={y.year}>{inputs.diasSofiaHR} días</td>)}</tr>
               <tr><td className="px-5 py-4 font-semibold">Ahorro por cobertura</td><td>$0</td>{results.years.map((y) => <td key={y.year}>{money(y.ahorroCobertura)}</td>)}</tr>
               <tr><td className="px-5 py-4 font-semibold">Capacidad RH recuperada</td><td>$0</td>{results.years.map((y) => <td key={y.year}>{money(y.ahorroRH)}</td>)}</tr>
               <tr><td className="px-5 py-4 font-semibold">Reducción en agencias</td><td>$0</td>{results.years.map((y) => <td key={y.year}>{money(y.ahorroAgencias)}</td>)}</tr>
