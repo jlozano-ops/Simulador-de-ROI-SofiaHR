@@ -11,8 +11,82 @@ import {
   ArrowRight,
   BarChart3,
   ShieldCheck,
+  Check,
 } from 'lucide-react';
 import './styles.css';
+
+// Tabulador de licenciamiento anual (USD, sin IVA), tal como aparece en la
+// propuesta comercial. Starter ≈ 30% y Plus ≈ 65% del Premium.
+const TABULADOR = [
+  { min: 150, max: 500, starter: 15709, plus: 34034, premium: 52361 },
+  { min: 501, max: 1500, starter: 17454, plus: 37816, premium: 58179 },
+  { min: 1501, max: 2000, starter: 21184, plus: 45898, premium: 70612 },
+  { min: 2001, max: 3000, starter: 25511, plus: 55274, premium: 85037 },
+  { min: 3001, max: 4000, starter: 33319, plus: 72191, premium: 111063 },
+  { min: 4001, max: 5000, starter: 39039, plus: 84584, premium: 130129 },
+  { min: 5001, max: 6000, starter: 40583, plus: 87929, premium: 135275 },
+  { min: 6001, max: 7000, starter: 42474, plus: 92027, premium: 141580 },
+  { min: 7001, max: 8000, starter: 45758, plus: 99142, premium: 152526 },
+];
+
+const PLANES = {
+  starter: {
+    id: 'starter',
+    nombre: 'Starter',
+    subtitulo: '30% del tabulador Premium',
+    factor: 0.3,
+    maxPuestos: 2,
+    localidades: '10 localidades',
+    color: '#0f9d58',
+    features: [
+      'Bot con IA en WhatsApp y Facebook',
+      'Hasta 2 puestos configurados y 10 localidades',
+      'ATS con funcionalidades básicas',
+      'Analítica básica de contratación',
+      'Capacitación al equipo y seguimiento semanal',
+    ],
+  },
+  plus: {
+    id: 'plus',
+    nombre: 'Plus',
+    subtitulo: '65% del tabulador Premium',
+    factor: 0.65,
+    maxPuestos: 5,
+    localidades: '20 localidades',
+    color: '#ff5a2c',
+    features: [
+      'Todo lo del plan Starter',
+      'Módulo de referidos internos',
+      'Mensajes masivos a candidatos',
+      'Hasta 5 puestos configurados y 20 localidades',
+      'Bot exclusivo para el reclutador',
+      'Onboarding y recopilación de documentos',
+      'Hasta 3 encuestas de pulso',
+      'Dashboard de onboarding y rotación',
+    ],
+  },
+  premium: {
+    id: 'premium',
+    nombre: 'Premium',
+    subtitulo: '100% del tabulador',
+    factor: 1,
+    maxPuestos: Infinity,
+    localidades: 'localidades ilimitadas',
+    color: '#101b63',
+    features: [
+      'Todo lo del plan Plus',
+      'Gestión de campañas de marketing (1/mes)',
+      'Recopilación y validación de documentos',
+      'Hasta 6 encuestas de pulso',
+      'Agentes de IA para voz y llamadas del candidato',
+      'Configuración de puestos y localidades ilimitadas',
+      'Soporte dedicado prioritario',
+      'Integración con ERPs y firma digital (se cotizan por separado)',
+    ],
+  },
+};
+
+const ORDEN_PLANES = ['starter', 'plus', 'premium'];
 
 function App() {
   const [inputs, setInputs] = useState({
@@ -31,8 +105,12 @@ function App() {
     porcentajeAgencia: 30,
     feeAgencia: 8000,
     pautaDigital: 30000,
-    licenciaAnual: 750000,
+    puestosConfigurar: 3,
+    tipoCambio: 18.5,
   });
+
+  // null = usar el plan recomendado automáticamente
+  const [planSeleccionado, setPlanSeleccionado] = useState(null);
 
   const money = (value, compact = false) => {
     const safe = Number.isFinite(value) ? value : 0;
@@ -56,11 +134,61 @@ function App() {
     setInputs((prev) => ({ ...prev, [key]: numeric < 0 ? 0 : numeric }));
   };
 
+  const moneyUSD = (value) =>
+    new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0,
+    }).format(Number.isFinite(value) ? value : 0);
+
   const results = useMemo(() => {
     const contratacionesAnuales = inputs.contratacionesMes * 12;
     const adopcion = [0.5, 0.8, 0.9];
     const reduccionAgencia = [0.3, 0.5, 0.65];
     const diasSofiaHR = inputs.diasSofiaHR;
+
+    // --- Licenciamiento según tabulador y plan ---
+    const tier = TABULADOR.find(
+      (t) => contratacionesAnuales >= t.min && contratacionesAnuales <= t.max,
+    );
+    let preciosUSD;
+    let rangoFlag = null; // 'min' | 'max' | null
+    if (contratacionesAnuales < TABULADOR[0].min) {
+      // Debajo del rango mínimo: aplica precio de entrada del tabulador
+      const first = TABULADOR[0];
+      preciosUSD = { starter: first.starter, plus: first.plus, premium: first.premium };
+      rangoFlag = 'min';
+    } else if (!tier) {
+      // Extrapolación arriba de 8,000 contrataciones/año (sujeto a cotización)
+      const last = TABULADOR[TABULADOR.length - 1];
+      const prev = TABULADOR[TABULADOR.length - 2];
+      const marginalPorMil = last.premium - prev.premium;
+      const bloquesExtra = Math.ceil((contratacionesAnuales - last.max) / 1000);
+      const premiumExt = last.premium + bloquesExtra * marginalPorMil;
+      preciosUSD = {
+        starter: Math.round(premiumExt * PLANES.starter.factor),
+        plus: Math.round(premiumExt * PLANES.plus.factor),
+        premium: Math.round(premiumExt),
+      };
+      rangoFlag = 'max';
+    } else {
+      preciosUSD = { starter: tier.starter, plus: tier.plus, premium: tier.premium };
+    }
+    const premiumUSD = preciosUSD.premium;
+
+    const planRecomendado =
+      inputs.puestosConfigurar <= PLANES.starter.maxPuestos
+        ? 'starter'
+        : inputs.puestosConfigurar <= PLANES.plus.maxPuestos
+          ? 'plus'
+          : 'premium';
+
+    const planActivo = planSeleccionado || planRecomendado;
+    const planInsuficiente =
+      inputs.puestosConfigurar > PLANES[planActivo].maxPuestos;
+
+    const licenciaUSD = preciosUSD[planActivo];
+    const licenciaAnual = licenciaUSD * inputs.tipoCambio; // MXN
 
     const costoDiaVacanteAutomatico =
       (inputs.sueldoOperativo / 30) * inputs.factorImpactoVacante;
@@ -74,9 +202,9 @@ function App() {
     const costoRHReclutamiento = costoAnualRH * (inputs.porcentajeTiempoRH / 100);
     const costoActualAgencias =
       contratacionesAnuales * (inputs.porcentajeAgencia / 100) * inputs.feeAgencia;
-    const inversionMensual = inputs.licenciaAnual / 12;
+    const inversionMensual = licenciaAnual / 12;
     const costoSofiaPorContratacion =
-      contratacionesAnuales > 0 ? inputs.licenciaAnual / contratacionesAnuales : 0;
+      contratacionesAnuales > 0 ? licenciaAnual / contratacionesAnuales : 0;
 
     const years = adopcion.map((a, i) => {
       const contratacionesSofiaHR = contratacionesAnuales * a;
@@ -84,9 +212,9 @@ function App() {
       const ahorroRH = costoRHReclutamiento * (inputs.automatizacion / 100) * a;
       const ahorroAgencias = costoActualAgencias * reduccionAgencia[i];
       const ahorroTotal = ahorroCobertura + ahorroRH + ahorroAgencias;
-      const beneficioNeto = ahorroTotal - inputs.licenciaAnual;
-      const roi = inputs.licenciaAnual > 0 ? beneficioNeto / inputs.licenciaAnual : 0;
-      const payback = ahorroTotal > 0 ? inputs.licenciaAnual / (ahorroTotal / 12) : 0;
+      const beneficioNeto = ahorroTotal - licenciaAnual;
+      const roi = licenciaAnual > 0 ? beneficioNeto / licenciaAnual : 0;
+      const payback = ahorroTotal > 0 ? licenciaAnual / (ahorroTotal / 12) : 0;
 
       return {
         year: i + 1,
@@ -105,7 +233,7 @@ function App() {
     });
 
     const totalAhorro3 = years.reduce((s, y) => s + y.ahorroTotal, 0);
-    const totalInversion3 = inputs.licenciaAnual * 3;
+    const totalInversion3 = licenciaAnual * 3;
     const beneficio3 = totalAhorro3 - totalInversion3;
     const roi3 = totalInversion3 > 0 ? beneficio3 / totalInversion3 : 0;
 
@@ -124,8 +252,16 @@ function App() {
       totalInversion3,
       beneficio3,
       roi3,
+      planRecomendado,
+      planActivo,
+      planInsuficiente,
+      preciosUSD,
+      premiumUSD,
+      licenciaUSD,
+      licenciaAnual,
+      rangoFlag,
     };
-  }, [inputs]);
+  }, [inputs, planSeleccionado]);
 
   const y1 = results.years[0];
   const totalAhorro = y1.ahorroTotal || 1;
@@ -270,10 +406,11 @@ function App() {
       <main id="simulador" className="mx-auto grid max-w-7xl gap-6 px-6 py-8 lg:grid-cols-[1.25fr_0.75fr]">
         <div className="space-y-5">
           <SectionCard icon={Briefcase} badge="A" title="Tu operación actual" subtitle="Información general de tus contrataciones">
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <InputBox label="Contrataciones operativas por mes" value={inputs.contratacionesMes} field="contratacionesMes" />
               <InputBox label="Vacantes abiertas promedio" value={inputs.vacantesAbiertas} field="vacantesAbiertas" note="Vacantes operativas abiertas simultáneamente en un mes." />
               <InputBox label="Contrataciones anuales estimadas" value={results.contratacionesAnuales} field="contratacionesMes" suffix="año" disabled note="Contrataciones mensuales x 12." />
+              <InputBox label="Puestos a configurar" value={inputs.puestosConfigurar} field="puestosConfigurar" suffix="puestos" note="Tipos de puesto distintos que quieres gestionar con SofiaHR. Define el plan recomendado." />
             </div>
           </SectionCard>
 
@@ -358,13 +495,90 @@ function App() {
           <SectionCard icon={Megaphone} badge="E" title="Inversión en atracción" subtitle="La pauta acelera el volumen de candidatos" color="purple">
             <div className="grid gap-4 md:grid-cols-2">
               <InputBox label="Presupuesto mensual estimado para pauta" value={inputs.pautaDigital} field="pautaDigital" prefix="$" />
-              <InputBox label="Licencia anual SofiaHR" value={inputs.licenciaAnual} field="licenciaAnual" prefix="$" note="Referencia: $750,000 anual para 1,000 a 1,500 contrataciones." />
+              <InputBox label="Tipo de cambio USD → MXN" value={inputs.tipoCambio} field="tipoCambio" step="0.1" prefix="$" note="El licenciamiento se cotiza en USD. Ajusta al tipo de cambio vigente." />
             </div>
-            <div className="mt-4 rounded-xl bg-orange-50 p-4 text-sm">
-              <div className="flex justify-between gap-4">
-                <span className="font-semibold text-slate-700">Inversión mensual SofiaHR</span>
-                <strong className="text-[#ff5a2c]">{money(results.inversionMensual)}</strong>
+          </SectionCard>
+
+          <SectionCard icon={Tag} badge="F" title="Elige tu plan SofiaHR" subtitle="Recomendado según tus contrataciones anuales y puestos a configurar" color="blue">
+            {results.rangoFlag === 'min' && (
+              <div className="mb-4 rounded-xl bg-blue-50 p-3 text-xs font-semibold text-[#13206b]">
+                Tu volumen está por debajo del rango mínimo del tabulador (150 contrataciones/año). Se aplica el precio de entrada.
               </div>
+            )}
+            {results.rangoFlag === 'max' && (
+              <div className="mb-4 rounded-xl bg-orange-50 p-3 text-xs font-semibold text-[#ff5a2c]">
+                Tu volumen supera las 8,000 contrataciones/año. El precio mostrado es estimado y está sujeto a cotización personalizada.
+              </div>
+            )}
+            <div className="grid gap-4 lg:grid-cols-3">
+              {ORDEN_PLANES.map((id) => {
+                const plan = PLANES[id];
+                const activo = results.planActivo === id;
+                const recomendado = results.planRecomendado === id;
+                const insuficiente = inputs.puestosConfigurar > plan.maxPuestos;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setPlanSeleccionado(id === results.planRecomendado ? null : id)}
+                    className={`relative flex flex-col rounded-2xl border-2 bg-white p-4 text-left transition-shadow ${activo ? 'shadow-lg' : 'border-slate-200 hover:shadow-md'}`}
+                    style={activo ? { borderColor: plan.color } : undefined}
+                  >
+                    {recomendado && (
+                      <span className="absolute -top-3 right-3 rounded-full bg-[#ff5a2c] px-3 py-1 text-[10px] font-black uppercase tracking-wide text-white shadow">
+                        Recomendado
+                      </span>
+                    )}
+                    <p className="text-lg font-black" style={{ color: plan.color }}>{plan.nombre}</p>
+                    <p className="text-[11px] font-semibold text-slate-500">{plan.subtitulo}</p>
+                    <p className="mt-3 text-2xl font-black text-slate-900">{moneyUSD(results.preciosUSD[id])}<span className="text-xs font-semibold text-slate-500"> USD/año</span></p>
+                    <p className="text-xs font-semibold text-slate-500">≈ {money(results.preciosUSD[id] * inputs.tipoCambio)} MXN/año</p>
+                    {insuficiente && (
+                      <p className="mt-2 rounded-lg bg-red-50 px-2 py-1 text-[11px] font-bold text-red-600">
+                        Permite hasta {plan.maxPuestos} puestos; capturaste {inputs.puestosConfigurar}.
+                      </p>
+                    )}
+                    <ul className="mt-3 space-y-1.5 text-[11px] leading-4 text-slate-600">
+                      {plan.features.map((f) => (
+                        <li key={f} className="flex gap-1.5">
+                          <Check className="h-3.5 w-3.5 shrink-0" style={{ color: plan.color }} />
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <span
+                      className={`mt-4 inline-flex items-center justify-center rounded-xl px-3 py-2 text-xs font-black ${activo ? 'text-white' : 'bg-slate-100 text-slate-600'}`}
+                      style={activo ? { backgroundColor: plan.color } : undefined}
+                    >
+                      {activo ? 'Plan seleccionado' : 'Seleccionar este plan'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {planSeleccionado && planSeleccionado !== results.planRecomendado && (
+              <button
+                type="button"
+                onClick={() => setPlanSeleccionado(null)}
+                className="mt-3 text-xs font-bold text-[#13206b] underline"
+              >
+                Volver al plan recomendado ({PLANES[results.planRecomendado].nombre})
+              </button>
+            )}
+            <div className="mt-4 rounded-xl bg-orange-50 p-4 text-sm">
+              <div className="flex flex-wrap justify-between gap-3">
+                <span className="font-semibold text-slate-700">
+                  Licencia anual — Plan {PLANES[results.planActivo].nombre}
+                </span>
+                <strong className="text-[#ff5a2c]">
+                  {moneyUSD(results.licenciaUSD)} USD ≈ {money(results.licenciaAnual)}
+                </strong>
+              </div>
+              <div className="mt-2 flex flex-wrap justify-between gap-3 text-xs text-slate-500">
+                <span>Inversión mensual SofiaHR</span>
+                <strong className="text-slate-700">{money(results.inversionMensual)}/mes</strong>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">Precios en USD por año, no incluyen IVA. Cálculos del ROI convertidos a MXN con el tipo de cambio capturado.</p>
             </div>
           </SectionCard>
         </div>
@@ -400,6 +614,16 @@ function App() {
                 <p className="text-xs text-slate-300">Payback</p>
                 <p className="font-black text-[#ff5a2c]">{num(y1.payback, 1)} meses</p>
               </div>
+            </div>
+            <div className="mt-4 rounded-xl bg-white/10 p-3 text-center">
+              <p className="text-xs text-slate-300">
+                Plan {PLANES[results.planActivo].nombre}
+                {results.planActivo === results.planRecomendado ? ' (recomendado)' : ''}
+              </p>
+              <p className="font-black text-[#ff5a2c]">{moneyUSD(results.licenciaUSD)} USD/año ≈ {money(results.licenciaAnual)}</p>
+              {results.rangoFlag === 'max' && (
+                <p className="mt-1 text-[10px] text-slate-300">Estimado, sujeto a cotización personalizada.</p>
+              )}
             </div>
             <a href="#lead" className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#ff5a2c] px-5 py-3 font-black text-white shadow-lg shadow-orange-900/20">
               Quiero ver mi demo personalizada <ArrowRight className="h-4 w-4" />
@@ -492,7 +716,7 @@ function App() {
               <tr><td className="px-5 py-4 font-semibold">Capacidad RH recuperada</td><td>$0</td>{results.years.map((y) => <td key={y.year}>{money(y.ahorroRH)}</td>)}</tr>
               <tr><td className="px-5 py-4 font-semibold">Reducción en agencias</td><td>$0</td>{results.years.map((y) => <td key={y.year}>{money(y.ahorroAgencias)}</td>)}</tr>
               <tr className="bg-orange-50"><td className="px-5 py-4 font-black">Ahorro total estimado</td><td>$0</td>{results.years.map((y) => <td key={y.year} className="font-black text-[#ff5a2c]">{money(y.ahorroTotal)}</td>)}</tr>
-              <tr><td className="px-5 py-4 font-semibold">Inversión SofiaHR</td><td>$0</td>{results.years.map((y) => <td key={y.year}>{money(inputs.licenciaAnual)}</td>)}</tr>
+              <tr><td className="px-5 py-4 font-semibold">Inversión SofiaHR</td><td>$0</td>{results.years.map((y) => <td key={y.year}>{money(results.licenciaAnual)}</td>)}</tr>
               <tr className="bg-orange-50"><td className="px-5 py-4 font-black">Beneficio neto</td><td>$0</td>{results.years.map((y) => <td key={y.year} className="font-black">{money(y.beneficioNeto)}</td>)}</tr>
               <tr><td className="px-5 py-4 font-black text-[#ff5a2c]">ROI</td><td>—</td>{results.years.map((y) => <td key={y.year} className="font-black text-[#ff5a2c]">{num(y.roi * 100)}%</td>)}</tr>
             </tbody>
