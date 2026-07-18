@@ -88,6 +88,92 @@ const PLANES = {
 
 const ORDEN_PLANES = ['starter', 'plus', 'premium'];
 
+// --- Utilidades de formato (fuera de App para no recrearse en cada render) ---
+const money = (value, compact = false) => {
+  const safe = Number.isFinite(value) ? value : 0;
+  if (compact && Math.abs(safe) >= 1000000) return `$${(safe / 1000000).toFixed(1)}M`;
+  if (compact && Math.abs(safe) >= 1000) return `$${Math.round(safe / 1000)}K`;
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    maximumFractionDigits: 0,
+  }).format(safe);
+};
+
+const num = (value, decimals = 0) =>
+  new Intl.NumberFormat('es-MX', {
+    maximumFractionDigits: decimals,
+    minimumFractionDigits: decimals,
+  }).format(Number.isFinite(value) ? value : 0);
+
+const moneyUSD = (value) =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(value) ? value : 0);
+
+// --- Componentes de UI (fuera de App para conservar el foco al escribir) ---
+const InputBox = ({ label, value, field, prefix, suffix, note, step = 1, disabled = false, onUpdate }) => (
+  <div>
+    <label className="mb-1.5 block text-xs font-semibold text-slate-700">{label}</label>
+    <div className={`flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm ${disabled ? 'opacity-70' : 'focus-within:border-[#13206b] focus-within:ring-2 focus-within:ring-[#13206b]/10'}`}>
+      {prefix && <span className="mr-1 text-sm text-slate-400">{prefix}</span>}
+      <input
+        type="number"
+        step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onUpdate(field, e.target.value)}
+        className="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+      />
+      {suffix && <span className="ml-1 text-xs text-slate-400">{suffix}</span>}
+    </div>
+    {note && <p className="mt-1 text-[11px] text-slate-500">{note}</p>}
+  </div>
+);
+
+const RangeBox = ({ label, value, field, min = 0, max = 100, suffix = '%', onUpdate }) => (
+  <div>
+    <div className="mb-2 flex items-center justify-between">
+      <label className="text-xs font-semibold text-slate-700">{label}</label>
+      <span className="text-xs font-bold text-[#13206b]">{num(Number(value) || 0)}{suffix}</span>
+    </div>
+    <input
+      type="range"
+      min={min}
+      max={max}
+      value={value}
+      onChange={(e) => onUpdate(field, e.target.value)}
+      className="w-full accent-[#ff5a2c]"
+    />
+  </div>
+);
+
+const SectionCard = ({ icon: Icon, badge, title, subtitle, children, color = 'blue' }) => {
+  const colorMap = {
+    blue: 'bg-blue-50 text-[#13206b]',
+    orange: 'bg-orange-50 text-[#ff5a2c]',
+    green: 'bg-emerald-50 text-emerald-700',
+    purple: 'bg-violet-50 text-violet-700',
+  };
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-start gap-3">
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${colorMap[color]}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-[#ff5a2c]">{badge}</p>
+          <h3 className="text-base font-bold text-[#13206b]">{title}</h3>
+          <p className="text-xs text-slate-500">{subtitle}</p>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+};
+
 function App() {
   const [inputs, setInputs] = useState({
     contratacionesMes: 100,
@@ -112,40 +198,29 @@ function App() {
   // null = usar el plan recomendado automáticamente
   const [planSeleccionado, setPlanSeleccionado] = useState(null);
 
-  const money = (value, compact = false) => {
-    const safe = Number.isFinite(value) ? value : 0;
-    if (compact && Math.abs(safe) >= 1000000) return `$${(safe / 1000000).toFixed(1)}M`;
-    if (compact && Math.abs(safe) >= 1000) return `$${Math.round(safe / 1000)}K`;
-    return new Intl.NumberFormat('es-MX', {
-      style: 'currency',
-      currency: 'MXN',
-      maximumFractionDigits: 0,
-    }).format(safe);
-  };
 
-  const num = (value, decimals = 0) =>
-    new Intl.NumberFormat('es-MX', {
-      maximumFractionDigits: decimals,
-      minimumFractionDigits: decimals,
-    }).format(Number.isFinite(value) ? value : 0);
 
+  // Guarda el valor tal cual se teclea (permite dejar el campo vacío mientras
+  // capturas). Los cálculos usan la versión numérica normalizada (V).
   const update = (key, value) => {
-    const numeric = Number(value);
-    setInputs((prev) => ({ ...prev, [key]: numeric < 0 ? 0 : numeric }));
+    setInputs((prev) => ({ ...prev, [key]: value }));
   };
 
-  const moneyUSD = (value) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      maximumFractionDigits: 0,
-    }).format(Number.isFinite(value) ? value : 0);
 
   const results = useMemo(() => {
-    const contratacionesAnuales = inputs.contratacionesMes * 12;
+    // Versión numérica de los inputs: los campos pueden quedar vacíos mientras
+    // el usuario captura; aquí se tratan como 0 y se evitan negativos.
+    const V = Object.fromEntries(
+      Object.entries(inputs).map(([k, val]) => [
+        k,
+        typeof val === 'boolean' ? val : Math.max(Number(val) || 0, 0),
+      ]),
+    );
+
+    const contratacionesAnuales = V.contratacionesMes * 12;
     const adopcion = [0.5, 0.8, 0.9];
     const reduccionAgencia = [0.3, 0.5, 0.65];
-    const diasSofiaHR = inputs.diasSofiaHR;
+    const diasSofiaHR = V.diasSofiaHR;
 
     // --- Licenciamiento según tabulador y plan ---
     const tier = TABULADOR.find(
@@ -177,31 +252,31 @@ function App() {
     const premiumUSD = preciosUSD.premium;
 
     const planRecomendado =
-      inputs.puestosConfigurar <= PLANES.starter.maxPuestos
+      V.puestosConfigurar <= PLANES.starter.maxPuestos
         ? 'starter'
-        : inputs.puestosConfigurar <= PLANES.plus.maxPuestos
+        : V.puestosConfigurar <= PLANES.plus.maxPuestos
           ? 'plus'
           : 'premium';
 
     const planActivo = planSeleccionado || planRecomendado;
     const planInsuficiente =
-      inputs.puestosConfigurar > PLANES[planActivo].maxPuestos;
+      V.puestosConfigurar > PLANES[planActivo].maxPuestos;
 
     const licenciaUSD = preciosUSD[planActivo];
-    const licenciaAnual = licenciaUSD * inputs.tipoCambio; // MXN
+    const licenciaAnual = licenciaUSD * V.tipoCambio; // MXN
 
     const costoDiaVacanteAutomatico =
-      (inputs.sueldoOperativo / 30) * inputs.factorImpactoVacante;
+      (V.sueldoOperativo / 30) * V.factorImpactoVacante;
 
-    const costoDiaVacante = inputs.calculoAutomaticoVacante
+    const costoDiaVacante = V.calculoAutomaticoVacante
       ? costoDiaVacanteAutomatico
-      : inputs.costoDiaVacanteManual;
+      : V.costoDiaVacanteManual;
 
-    const diasReducidos = Math.max(inputs.diasActuales - diasSofiaHR, 0);
-    const costoAnualRH = inputs.reclutadores * inputs.sueldoReclutador * 12;
-    const costoRHReclutamiento = costoAnualRH * (inputs.porcentajeTiempoRH / 100);
+    const diasReducidos = Math.max(V.diasActuales - diasSofiaHR, 0);
+    const costoAnualRH = V.reclutadores * V.sueldoReclutador * 12;
+    const costoRHReclutamiento = costoAnualRH * (V.porcentajeTiempoRH / 100);
     const costoActualAgencias =
-      contratacionesAnuales * (inputs.porcentajeAgencia / 100) * inputs.feeAgencia;
+      contratacionesAnuales * (V.porcentajeAgencia / 100) * V.feeAgencia;
     const inversionMensual = licenciaAnual / 12;
     const costoSofiaPorContratacion =
       contratacionesAnuales > 0 ? licenciaAnual / contratacionesAnuales : 0;
@@ -209,7 +284,7 @@ function App() {
     const years = adopcion.map((a, i) => {
       const contratacionesSofiaHR = contratacionesAnuales * a;
       const ahorroCobertura = diasReducidos * costoDiaVacante * contratacionesSofiaHR;
-      const ahorroRH = costoRHReclutamiento * (inputs.automatizacion / 100) * a;
+      const ahorroRH = costoRHReclutamiento * (V.automatizacion / 100) * a;
       const ahorroAgencias = costoActualAgencias * reduccionAgencia[i];
       const ahorroTotal = ahorroCobertura + ahorroRH + ahorroAgencias;
       const beneficioNeto = ahorroTotal - licenciaAnual;
@@ -228,7 +303,7 @@ function App() {
         beneficioNeto,
         roi,
         payback,
-        automatizacionEfectiva: (inputs.automatizacion / 100) * a,
+        automatizacionEfectiva: (V.automatizacion / 100) * a,
       };
     });
 
@@ -260,6 +335,7 @@ function App() {
       licenciaUSD,
       licenciaAnual,
       rangoFlag,
+      v: V,
     };
   }, [inputs, planSeleccionado]);
 
@@ -269,65 +345,8 @@ function App() {
   const mixRH = y1.ahorroRH / totalAhorro;
   const mixAgencia = y1.ahorroAgencias / totalAhorro;
 
-  const InputBox = ({ label, value, field, prefix, suffix, note, step = 1, disabled = false }) => (
-    <div>
-      <label className="mb-1.5 block text-xs font-semibold text-slate-700">{label}</label>
-      <div className={`flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm ${disabled ? 'opacity-70' : 'focus-within:border-[#13206b] focus-within:ring-2 focus-within:ring-[#13206b]/10'}`}>
-        {prefix && <span className="mr-1 text-sm text-slate-400">{prefix}</span>}
-        <input
-          type="number"
-          step={step}
-          value={value}
-          disabled={disabled}
-          onChange={(e) => update(field, e.target.value)}
-          className="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
-        />
-        {suffix && <span className="ml-1 text-xs text-slate-400">{suffix}</span>}
-      </div>
-      {note && <p className="mt-1 text-[11px] text-slate-500">{note}</p>}
-    </div>
-  );
 
-  const RangeBox = ({ label, value, field, min = 0, max = 100, suffix = '%' }) => (
-    <div>
-      <div className="mb-2 flex items-center justify-between">
-        <label className="text-xs font-semibold text-slate-700">{label}</label>
-        <span className="text-xs font-bold text-[#13206b]">{num(value)}{suffix}</span>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => update(field, e.target.value)}
-        className="w-full accent-[#ff5a2c]"
-      />
-    </div>
-  );
 
-  const SectionCard = ({ icon: Icon, badge, title, subtitle, children, color = 'blue' }) => {
-    const colorMap = {
-      blue: 'bg-blue-50 text-[#13206b]',
-      orange: 'bg-orange-50 text-[#ff5a2c]',
-      green: 'bg-emerald-50 text-emerald-700',
-      purple: 'bg-violet-50 text-violet-700',
-    };
-    return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-start gap-3">
-          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${colorMap[color]}`}>
-            <Icon className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-[#ff5a2c]">{badge}</p>
-            <h3 className="text-base font-bold text-[#13206b]">{title}</h3>
-            <p className="text-xs text-slate-500">{subtitle}</p>
-          </div>
-        </div>
-        {children}
-      </div>
-    );
-  };
 
   return (
     <div className="min-h-screen bg-[#f7f8fc] font-sans text-slate-900">
@@ -387,7 +406,7 @@ function App() {
               {[
                 ['ROI primer año', `${num(y1.roi * 100)}%`, 'text-emerald-400'],
                 ['Payback', `${num(y1.payback, 1)} meses`, 'text-emerald-400'],
-                ['Tiempo con SofiaHR', `${inputs.diasSofiaHR} días`, 'text-[#ff5a2c]'],
+                ['Tiempo con SofiaHR', `${results.v.diasSofiaHR} días`, 'text-[#ff5a2c]'],
                 ['Adopción Año 1', '50%', 'text-[#ff5a2c]'],
                 ['Inversión mensual', money(results.inversionMensual), 'text-[#ff5a2c]'],
                 ['Costo por contratación', money(results.costoSofiaPorContratacion), 'text-[#ff5a2c]'],
@@ -407,18 +426,18 @@ function App() {
         <div className="space-y-5">
           <SectionCard icon={Briefcase} badge="A" title="Tu operación actual" subtitle="Información general de tus contrataciones">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <InputBox label="Contrataciones operativas por mes" value={inputs.contratacionesMes} field="contratacionesMes" />
-              <InputBox label="Vacantes abiertas promedio" value={inputs.vacantesAbiertas} field="vacantesAbiertas" note="Vacantes operativas abiertas simultáneamente en un mes." />
-              <InputBox label="Contrataciones anuales estimadas" value={results.contratacionesAnuales} field="contratacionesMes" suffix="año" disabled note="Contrataciones mensuales x 12." />
-              <InputBox label="Puestos a configurar" value={inputs.puestosConfigurar} field="puestosConfigurar" suffix="puestos" note="Tipos de puesto distintos que quieres gestionar con SofiaHR. Define el plan recomendado." />
+              <InputBox onUpdate={update} label="Contrataciones operativas por mes" value={inputs.contratacionesMes} field="contratacionesMes" />
+              <InputBox onUpdate={update} label="Vacantes abiertas promedio" value={inputs.vacantesAbiertas} field="vacantesAbiertas" note="Vacantes operativas abiertas simultáneamente en un mes." />
+              <InputBox onUpdate={update} label="Contrataciones anuales estimadas" value={results.contratacionesAnuales} field="contratacionesMes" suffix="año" disabled note="Contrataciones mensuales x 12." />
+              <InputBox onUpdate={update} label="Puestos a configurar" value={results.v.puestosConfigurar} field="puestosConfigurar" suffix="puestos" note="Tipos de puesto distintos que quieres gestionar con SofiaHR. Define el plan recomendado." />
             </div>
           </SectionCard>
 
           <SectionCard icon={Zap} badge="B" title="Velocidad de contratación" subtitle="Costos asociados a vacantes sin cubrir" color="orange">
             <div className="grid gap-4 md:grid-cols-3">
-              <InputBox label="Días actuales para contratar" value={inputs.diasActuales} field="diasActuales" suffix="días" />
-              <InputBox label="Días estimados con SofiaHR" value={inputs.diasSofiaHR} field="diasSofiaHR" suffix="días" note="Puedes probar diferentes escenarios: 3, 5, 7 o más días." />
-              <InputBox label="Sueldo mensual promedio operativo" value={inputs.sueldoOperativo} field="sueldoOperativo" prefix="$" />
+              <InputBox onUpdate={update} label="Días actuales para contratar" value={results.v.diasActuales} field="diasActuales" suffix="días" />
+              <InputBox onUpdate={update} label="Días estimados con SofiaHR" value={results.v.diasSofiaHR} field="diasSofiaHR" suffix="días" note="Puedes probar diferentes escenarios: 3, 5, 7 o más días." />
+              <InputBox onUpdate={update} label="Sueldo mensual promedio operativo" value={results.v.sueldoOperativo} field="sueldoOperativo" prefix="$" />
             </div>
 
             <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm">
@@ -450,7 +469,7 @@ function App() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <InputBox
                     label="Factor de impacto operativo"
-                    value={inputs.factorImpactoVacante}
+                    value={results.v.factorImpactoVacante}
                     field="factorImpactoVacante"
                     step="0.1"
                     suffix="x"
@@ -458,7 +477,7 @@ function App() {
                   />
                   <div className="rounded-xl bg-white p-3 text-xs text-slate-600">
                     <strong>Fórmula:</strong> sueldo mensual / 30 × factor operativo.<br />
-                    Base actual: {money(inputs.sueldoOperativo / 30)} × {inputs.factorImpactoVacante} = {money(results.costoDiaVacante)}
+                    Base actual: {money(results.v.sueldoOperativo / 30)} × {results.v.factorImpactoVacante} = {money(results.costoDiaVacante)}
                   </div>
                 </div>
               ) : (
@@ -475,27 +494,27 @@ function App() {
 
           <SectionCard icon={Users} badge="C" title="Tu equipo de RH" subtitle="Costo y tiempo del área de reclutamiento" color="green">
             <div className="grid gap-4 md:grid-cols-2">
-              <InputBox label="Número de reclutadores" value={inputs.reclutadores} field="reclutadores" />
-              <InputBox label="Sueldo mensual promedio por reclutador" value={inputs.sueldoReclutador} field="sueldoReclutador" prefix="$" />
+              <InputBox onUpdate={update} label="Número de reclutadores" value={inputs.reclutadores} field="reclutadores" />
+              <InputBox onUpdate={update} label="Sueldo mensual promedio por reclutador" value={inputs.sueldoReclutador} field="sueldoReclutador" prefix="$" />
             </div>
             <div className="mt-5 space-y-5">
-              <RangeBox label="% del tiempo dedicado a reclutamiento" value={inputs.porcentajeTiempoRH} field="porcentajeTiempoRH" />
-              <RangeBox label="% de automatización con SofiaHR" value={inputs.automatizacion} field="automatizacion" />
+              <RangeBox onUpdate={update} label="% del tiempo dedicado a reclutamiento" value={inputs.porcentajeTiempoRH} field="porcentajeTiempoRH" />
+              <RangeBox onUpdate={update} label="% de automatización con SofiaHR" value={inputs.automatizacion} field="automatizacion" />
             </div>
           </SectionCard>
 
           <SectionCard icon={Tag} badge="D" title="Uso de agencias externas" subtitle="El gasto más fácil de reducir con IA" color="orange">
             <div className="grid gap-4 md:grid-cols-3">
-              <InputBox label="% contrataciones actuales por agencia" value={inputs.porcentajeAgencia} field="porcentajeAgencia" suffix="%" />
-              <InputBox label="Fee promedio por contratación agencia" value={inputs.feeAgencia} field="feeAgencia" prefix="$" />
-              <InputBox label="Gasto anual actual en agencias" value={Math.round(results.costoActualAgencias)} field="feeAgencia" prefix="$" disabled note="Calculado automáticamente." />
+              <InputBox onUpdate={update} label="% contrataciones actuales por agencia" value={results.v.porcentajeAgencia} field="porcentajeAgencia" suffix="%" />
+              <InputBox onUpdate={update} label="Fee promedio por contratación agencia" value={inputs.feeAgencia} field="feeAgencia" prefix="$" />
+              <InputBox onUpdate={update} label="Gasto anual actual en agencias" value={Math.round(results.costoActualAgencias)} field="feeAgencia" prefix="$" disabled note="Calculado automáticamente." />
             </div>
           </SectionCard>
 
           <SectionCard icon={Megaphone} badge="E" title="Inversión en atracción" subtitle="La pauta acelera el volumen de candidatos" color="purple">
             <div className="grid gap-4 md:grid-cols-2">
-              <InputBox label="Presupuesto mensual estimado para pauta" value={inputs.pautaDigital} field="pautaDigital" prefix="$" />
-              <InputBox label="Tipo de cambio USD → MXN" value={inputs.tipoCambio} field="tipoCambio" step="0.1" prefix="$" note="El licenciamiento se cotiza en USD. Ajusta al tipo de cambio vigente." />
+              <InputBox onUpdate={update} label="Presupuesto mensual estimado para pauta" value={inputs.pautaDigital} field="pautaDigital" prefix="$" />
+              <InputBox onUpdate={update} label="Tipo de cambio USD → MXN" value={results.v.tipoCambio} field="tipoCambio" step="0.1" prefix="$" note="El licenciamiento se cotiza en USD. Ajusta al tipo de cambio vigente." />
             </div>
           </SectionCard>
 
@@ -515,7 +534,7 @@ function App() {
                 const plan = PLANES[id];
                 const activo = results.planActivo === id;
                 const recomendado = results.planRecomendado === id;
-                const insuficiente = inputs.puestosConfigurar > plan.maxPuestos;
+                const insuficiente = results.v.puestosConfigurar > plan.maxPuestos;
                 return (
                   <button
                     key={id}
@@ -532,10 +551,10 @@ function App() {
                     <p className="text-lg font-black" style={{ color: plan.color }}>{plan.nombre}</p>
                     <p className="text-[11px] font-semibold text-slate-500">{plan.subtitulo}</p>
                     <p className="mt-3 text-2xl font-black text-slate-900">{moneyUSD(results.preciosUSD[id])}<span className="text-xs font-semibold text-slate-500"> USD/año</span></p>
-                    <p className="text-xs font-semibold text-slate-500">≈ {money(results.preciosUSD[id] * inputs.tipoCambio)} MXN/año</p>
+                    <p className="text-xs font-semibold text-slate-500">≈ {money(results.preciosUSD[id] * results.v.tipoCambio)} MXN/año</p>
                     {insuficiente && (
                       <p className="mt-2 rounded-lg bg-red-50 px-2 py-1 text-[11px] font-bold text-red-600">
-                        Permite hasta {plan.maxPuestos} puestos; capturaste {inputs.puestosConfigurar}.
+                        Permite hasta {plan.maxPuestos} puestos; capturaste {results.v.puestosConfigurar}.
                       </p>
                     )}
                     <ul className="mt-3 space-y-1.5 text-[11px] leading-4 text-slate-600">
@@ -657,7 +676,7 @@ function App() {
           </div>
           <h2 className="max-w-3xl text-3xl font-black md:text-4xl">El argumento que necesitas, con tus propios números</h2>
           <div className="mt-8 rounded-2xl border border-white/15 bg-white/10 p-6 text-lg italic leading-8 text-slate-100">
-            “Hoy perdemos dinero porque tardamos <strong>{inputs.diasActuales} días</strong> en contratar y el <strong>{inputs.porcentajeAgencia}%</strong> de nuestras contrataciones pasa por agencias. Con SofiaHR reducimos el tiempo de cobertura a <strong>{inputs.diasSofiaHR} días</strong>, liberamos capacidad operativa del equipo de RH y reducimos dependencia externa. El ahorro estimado del primer año es de <strong className="text-[#ff8a66]">{money(y1.ahorroTotal)}</strong>, con un ROI de <strong className="text-[#ff8a66]">{num(y1.roi * 100)}%</strong>.”
+            “Hoy perdemos dinero porque tardamos <strong>{results.v.diasActuales} días</strong> en contratar y el <strong>{results.v.porcentajeAgencia}%</strong> de nuestras contrataciones pasa por agencias. Con SofiaHR reducimos el tiempo de cobertura a <strong>{results.v.diasSofiaHR} días</strong>, liberamos capacidad operativa del equipo de RH y reducimos dependencia externa. El ahorro estimado del primer año es de <strong className="text-[#ff8a66]">{money(y1.ahorroTotal)}</strong>, con un ROI de <strong className="text-[#ff8a66]">{num(y1.roi * 100)}%</strong>.”
           </div>
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <div className="rounded-2xl border border-white/15 bg-white/10 p-5"><p className="text-2xl font-black text-[#ff5a2c]">{money(y1.ahorroTotal / 12, true)}/mes</p><p className="text-sm text-slate-300">Ahorro mensual total</p></div>
@@ -684,7 +703,7 @@ function App() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              <tr><td className="px-5 py-4 font-semibold">Días para cubrir una vacante</td><td>{inputs.diasActuales} días</td><td>→</td><td className="font-black text-emerald-600">{inputs.diasSofiaHR} días</td></tr>
+              <tr><td className="px-5 py-4 font-semibold">Días para cubrir una vacante</td><td>{results.v.diasActuales} días</td><td>→</td><td className="font-black text-emerald-600">{results.v.diasSofiaHR} días</td></tr>
               <tr><td className="px-5 py-4 font-semibold">Costo estimado por día de vacante sin cubrir</td><td>{money(results.costoDiaVacante)}</td><td>→</td><td className="font-black text-emerald-600">Base para calcular ahorro por cobertura</td></tr>
               <tr><td className="px-5 py-4 font-semibold">% contrataciones gestionadas por SofiaHR</td><td>0%</td><td>→</td><td className="font-black text-emerald-600">50% año 1 / 80% año 2 / 90% año 3</td></tr>
               <tr><td className="px-5 py-4 font-semibold">Gasto anual en agencias</td><td>{money(results.costoActualAgencias)}</td><td>→</td><td className="font-black text-emerald-600">-{money(y1.ahorroAgencias)} año 1</td></tr>
@@ -711,7 +730,7 @@ function App() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              <tr><td className="px-5 py-4 font-semibold">Tiempo de cobertura</td><td>{inputs.diasActuales} días</td>{results.years.map((y) => <td key={y.year}>{inputs.diasSofiaHR} días</td>)}</tr>
+              <tr><td className="px-5 py-4 font-semibold">Tiempo de cobertura</td><td>{results.v.diasActuales} días</td>{results.years.map((y) => <td key={y.year}>{results.v.diasSofiaHR} días</td>)}</tr>
               <tr><td className="px-5 py-4 font-semibold">Ahorro por cobertura</td><td>$0</td>{results.years.map((y) => <td key={y.year}>{money(y.ahorroCobertura)}</td>)}</tr>
               <tr><td className="px-5 py-4 font-semibold">Capacidad RH recuperada</td><td>$0</td>{results.years.map((y) => <td key={y.year}>{money(y.ahorroRH)}</td>)}</tr>
               <tr><td className="px-5 py-4 font-semibold">Reducción en agencias</td><td>$0</td>{results.years.map((y) => <td key={y.year}>{money(y.ahorroAgencias)}</td>)}</tr>
